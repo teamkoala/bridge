@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Money 20/20</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    var annyangScript = document.createElement('script');
+    if (/localhost/.exec(window.location)) {
+      annyangScript.src = "//localhost:8443/dist/annyang.js"
+    } else {
+      annyangScript.src = "https://cdnjs.cloudflare.com/ajax/libs/annyang/2.6.0/annyang.min.js"
+    }
+    document.write(annyangScript.outerHTML)
+  </script>
+  <script src=""></script>
+  <!-- <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script> -->
+  <script src="https://code.jquery.com/jquery-3.1.1.min.js"   integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8="   crossorigin="anonymous"></script>
+  <script>
+  "use strict";
+
+    var isListening = false;
+    var orderId;
+    var total = 0;
+    var language;
+
+    var startListening = function() {
+      isListening = true;
+    }
+
+    var stopListening = function() {
+      isListening = false;
+    }
+
+    var setLang = function(lang) {
+        console.log('Set language ' + lang);
+        if(lang == 'Spanish'){
+          language = 'es';
+          annyang.setLanguage('es-US');
+          $('#luis-response').text('Switched to Spanish. Que digo?');
+        } else if(lang == 'French') {
+          language = 'fr';
+          annyang.setLanguage('fr-FR');
+        } else {
+          language = 'en';
+          annyang.setLanguage('en-US');
+          $('#luis-response').text('Switched to English. Say again?');
+        }
+    };
+
+    var luis = function(search) {
+      console.log("Current language " + language);
+      if(isListening) {
+
+
+        if(language == 'es'){
+
+          var url = 'https://www.googleapis.com/language/translate/v2?key=AIzaSyDjDHlPdEvi0hZOq0MoKxZ8iR2MZXBksMw&q='+search+'&source='+language +'&target=en';
+          $.ajax({
+            type: 'GET',
+            url: url,
+            async: false,
+            success: function (res) {
+              console.log('From Google: ' + res.data.translations[0].translatedText)
+              search = res.data.translations[0].translatedText;
+            },
+            contentType: "application/json",
+            dataType: 'json'
+          });
+        } else if(language == 'fr'){
+          var url = 'https://www.googleapis.com/language/translate/v2?key=AIzaSyDjDHlPdEvi0hZOq0MoKxZ8iR2MZXBksMw&q='+search+'&source='+language +'&target=en';
+          $.ajax({
+            type: 'GET',
+            url: url,
+            async: false,
+            success: function (res) {
+              console.log('From Google: ' + res.data.translations[0].translatedText)
+              search = res.data.translations[0].translatedText;
+            },
+            contentType: "application/json",
+            dataType: 'json'
+          });
+        }
+        
+        if(search.indexOf('switch to') !== -1) {
+          console.log("Switching back to English");
+          setLang('en');
+        }
+        queryLuis(search);
+      }
+    };
+
+    var queryLuis = function(search) {
+      console.log(search);
+      console.log(encodeURI(search));
+      var url = 'https://api.projectoxford.ai/luis/v1/application?id=0b3a760b-21e8-4087-bc15-29a8b1c89562&subscription-key=df5ff6b455844d8dac373d8793ccb254&q=' + encodeURI(search);
+      $.ajax({
+        type: 'GET',
+        url: url,
+        async: false,
+        success: fulfill,
+        contentType: "application/json",
+        dataType: 'json'
+      });
+    };
+
+    // var getLanguage = function(text) {
+    //   var search = text.replace(" ", "+");
+    //   var url = 'https://www.googleapis.com/language/translate/v2/detect?key=AIzaSyDjDHlPdEvi0hZOq0MoKxZ8iR2MZXBksMw&q=';
+    //   var something = $.ajax({
+    //       type: 'GET',
+    //       url: url + search,
+    //       async: false,
+    //       success: function(data){
+    //         language = checkLanguage(data);
+    //       },
+    //       contentType: "application/json",
+    //       dataType: 'json'
+    //     });
+    // };
+
+    // var checkLanguage = function(lang) {
+    //   return lang.data.detections[0][0].language;
+    // }
+
+    var fulfill = function(results) {
+      var intent = results.intents[0].intent;
+      
+      console.log("Intent is: " + intent);
+      if(intent == 'None'){
+        $('#luis-response').text('We only serve coffee here.').fadeIn('fast');
+        $('#luis-response').append('What else would you like?');
+      } else if(intent == 'Order'){
+        var url = 'https://rocky-sands-79934.herokuapp.com/items/query.json?name=' + results.entities[0].type;
+        $.ajax({
+          type: 'GET',
+          url: url,
+          async: false,
+          success: inventory,
+          contentType: "application/json",
+          dataType: 'json'
+        });
+      } else if(intent == 'End Transaction') {
+        var url = 'https://rocky-sands-79934.herokuapp.com/orders/'+ orderId +'/finish.json';
+        $.ajax({
+          type: 'PATCH',
+          url: url,
+          async: false,
+          success: finishTransaction,
+          contentType: "application/json",
+          dataType: 'json'
+        });
+      } else if(intent == 'Cancel All') {
+        $('#luis-response').text('Thank you! Your order was cancelled.');
+        $('#luis-user').text('');
+        $('#items').empty();
+        orderId = '';
+        total = 0;
+      }
+      
+    };
+
+    var inventory = function(results) {
+      var response = '';
+
+      if(results.item.name.indexOf('Coffee') !== -1) {
+        var li = '<li>'+ results.item.name + ' for $' + results.item.price + '</li>';
+        var url = '';
+        if(orderId)
+          url = 'https://rocky-sands-79934.herokuapp.com/line_items/create.json?item_id='+ results.item.id + '&order_id='+orderId;
+        else
+          url = 'https://rocky-sands-79934.herokuapp.com/line_items/create.json?item_id='+ results.item.id;
+
+        // var url = 'https://rocky-sands-79934.herokuapp.com/line_items/create.json?item_id='+ results.item.id;
+        console.log("inventory::url " + url);
+        $('#items').append(li);
+        total += results.item.price;
+        $.ajax({
+          type: 'POST',
+          url: url,
+          success: addItem
+        });
+      } else {
+        $('#luis-response').append('\nI don\'t understand what you want.');
+      }
+
+      $('#luis-response').text('\nCan I help you with anything else?');
+
+      // $('#luis-response').text(string + '\nCan I help you with anything else?').fadeIn('fast');
+    };
+
+    var addItem = function(results) {
+      console.log('Added Item: '+ results);
+      orderId = results.line_item.order_id;
+    };
+
+    var finishTransaction = function(results) {
+      console.log('Finished '+results)
+      $('#luis-response').text('Thank you! Your total is ' + total);
+      $('#luis-user').text('');
+      orderId = '';
+      total = 0;
+    };
+
+    // define our commands.
+    // * The key is the phrase you want your users to say.
+    // * The value is the action to do.
+    //   You can pass a function, a function name (as a string), or write your function as part of the commands object.
+    var commands = {
+      'start listening':         startListening,
+      'stop listening':          stopListening,
+      'switch to *lang':         setLang, 
+      '*search':                 luis,
+      
+      // 'hello (there)':        hello,
+      // 'show me *search':      showFlickr,
+      // 'show :type report':    showTPS,
+      // 'let\'s get started':   getStarted,
+    };
+
+    // OPTIONAL: activate debug mode for detailed logging in the console
+    annyang.debug();
+
+    // Add voice commands to respond to
+    annyang.addCommands(commands);
+
+    // OPTIONAL: Set a language for speech recognition (defaults to English)
+    // For a full list of language codes, see the documentation:
+    // https://github.com/TalAter/annyang/blob/master/docs/FAQ.md#what-languages-are-supported
+    // annyang.setLanguage('en');
+    setLang('en');
+
+    // Start listening. You can call this here, or attach this call to an event, button, etc.
+    annyang.start();
+
+  </script>
+  <link rel="stylesheet" href="css/main.min.css" />
+</head>
+<body>
+  <section id="section_header">
+    <h1><em>Order</em> your coffee here</h1>
+    <h2>Say whatever you'd like, "I'd like a small coffee"</h2>
+    <p id="luis-user"></p>
+    <p id="luis-response"></p>
+    <ul id="items" style="width: 250px;display: inline-block;">
+    </ul>
+  </section>
+  <script src="./vendor/js/highlight.pack.js"></script>
+  <script>
+    hljs.initHighlightingOnLoad();
+  </script>
+</body>
+</html>
